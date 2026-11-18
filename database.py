@@ -1,6 +1,11 @@
+import hashlib
 import sqlite3
 from datetime import datetime, date
-from typing import List, Dict, Tuple
+from typing import List, Dict, Optional, Tuple
+
+
+def _hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
 class AttendanceDatabase:
@@ -16,6 +21,15 @@ class AttendanceDatabase:
 
     def _init_db(self):
         with self._connect() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS auth_accounts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    full_name TEXT NOT NULL,
+                    role TEXT NOT NULL
+                )
+            """)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,19 +59,52 @@ class AttendanceDatabase:
 
     def _seed_defaults(self):
         with self._connect() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-            if count > 0:
-                return
-            seed_users = [
-                ("CSC/2022/1042", "Chinedu Okafor", "Computer Science", "400L", "2026-09-10"),
-                ("CSC/2022/1089", "Amina Yusuf", "Computer Science", "400L", "2026-09-11"),
-                ("EEE/2023/0412", "Tobi Adeyemi", "Electrical Engineering", "300L", "2026-09-12"),
-            ]
-            conn.executemany(
-                "INSERT INTO users (matric_no, full_name, department, level, enrolled_at) VALUES (?, ?, ?, ?, ?)",
-                seed_users,
-            )
+            auth_count = conn.execute("SELECT COUNT(*) FROM auth_accounts").fetchone()[0]
+            if auth_count == 0:
+                accounts = [
+                    ("admin", _hash_password("admin123"), "System Administrator", "Admin"),
+                    ("lecturer", _hash_password("staff123"), "Dr. Adebayo Kunle", "Staff"),
+                ]
+                conn.executemany(
+                    "INSERT INTO auth_accounts (username, password_hash, full_name, role) VALUES (?, ?, ?, ?)",
+                    accounts,
+                )
+
+            user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            if user_count == 0:
+                seed_users = [
+                    ("CSC/2022/1042", "Chinedu Okafor", "Computer Science", "400L", "2026-09-10"),
+                    ("CSC/2022/1089", "Amina Yusuf", "Computer Science", "400L", "2026-09-11"),
+                    ("EEE/2023/0412", "Tobi Adeyemi", "Electrical Engineering", "300L", "2026-09-12"),
+                ]
+                conn.executemany(
+                    "INSERT INTO users (matric_no, full_name, department, level, enrolled_at) VALUES (?, ?, ?, ?, ?)",
+                    seed_users,
+                )
             conn.commit()
+
+    def authenticate(self, username: str, password: str) -> Optional[Dict]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id, username, full_name, role FROM auth_accounts WHERE username = ? AND password_hash = ?",
+                (username.strip().lower(), _hash_password(password)),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def register_account(self, username: str, password: str, full_name: str, role: str = "Staff") -> Tuple[bool, str]:
+        uname = username.strip().lower()
+        if len(uname) < 3 or len(password) < 4:
+            return False, "Username must be at least 3 characters and password at least 4 characters."
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO auth_accounts (username, password_hash, full_name, role) VALUES (?, ?, ?, ?)",
+                    (uname, _hash_password(password), full_name.strip(), role),
+                )
+                conn.commit()
+            return True, f"Account '{uname}' created successfully. You can now sign in."
+        except sqlite3.IntegrityError:
+            return False, f"Username '{uname}' is already taken."
 
     def get_users(self) -> List[Dict]:
         with self._connect() as conn:
