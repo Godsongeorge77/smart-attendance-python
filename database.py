@@ -59,17 +59,15 @@ class AttendanceDatabase:
 
     def _seed_defaults(self):
         with self._connect() as conn:
+            # Only seed the default Administrator account
             auth_count = conn.execute("SELECT COUNT(*) FROM auth_accounts").fetchone()[0]
             if auth_count == 0:
-                accounts = [
-                    ("admin", _hash_password("admin123"), "System Administrator", "Admin"),
-                    ("lecturer", _hash_password("staff123"), "Dr. Adebayo Kunle", "Staff"),
-                ]
-                conn.executemany(
+                conn.execute(
                     "INSERT INTO auth_accounts (username, password_hash, full_name, role) VALUES (?, ?, ?, ?)",
-                    accounts,
+                    ("admin", _hash_password("admin123"), "System Administrator", "Admin"),
                 )
 
+            # Seed sample students (which also creates their portal accounts automatically)
             user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
             if user_count == 0:
                 seed_users = [
@@ -77,13 +75,21 @@ class AttendanceDatabase:
                     ("CSC/2022/1089", "Amina Yusuf", "Computer Science", "400L", "2026-09-11"),
                     ("EEE/2023/0412", "Tobi Adeyemi", "Electrical Engineering", "300L", "2026-09-12"),
                 ]
-                conn.executemany(
-                    "INSERT INTO users (matric_no, full_name, department, level, enrolled_at) VALUES (?, ?, ?, ?, ?)",
-                    seed_users,
-                )
+                for matric_no, full_name, department, level, enrolled_at in seed_users:
+                    try:
+                        conn.execute(
+                            "INSERT INTO users (matric_no, full_name, department, level, enrolled_at) VALUES (?, ?, ?, ?, ?)",
+                            (matric_no, full_name, department, level, enrolled_at),
+                        )
+                        # Also create matching student login account (default password: student123)
+                        conn.execute(
+                            "INSERT OR IGNORE INTO auth_accounts (username, password_hash, full_name, role) VALUES (?, ?, ?, ?)",
+                            (matric_no.lower(), _hash_password("student123"), full_name, "Student"),
+                        )
+                    except Exception:
+                        pass
             conn.commit()
 
-    # -------------------- Authentication --------------------
     def authenticate(self, username: str, password: str) -> Optional[Dict]:
         with self._connect() as conn:
             row = conn.execute(
@@ -92,10 +98,10 @@ class AttendanceDatabase:
             ).fetchone()
             return dict(row) if row else None
 
-    def register_account(self, username: str, password: str, full_name: str, role: str = "Staff") -> Tuple[bool, str]:
+    def register_account(self, username: str, password: str, full_name: str, role: str = "Student") -> Tuple[bool, str]:
         uname = username.strip().lower()
         if len(uname) < 3 or len(password) < 4:
-            return False, "Username must be at least 3 characters and password at least 4 characters."
+            return False, "Username/Matric must be at least 3 characters and password at least 4 characters."
         try:
             with self._connect() as conn:
                 conn.execute(
@@ -103,11 +109,10 @@ class AttendanceDatabase:
                     (uname, _hash_password(password), full_name.strip(), role),
                 )
                 conn.commit()
-            return True, f"Account '{uname}' created successfully. You can now sign in."
+            return True, f"Account for '{full_name.strip()}' created successfully. You can now sign in."
         except sqlite3.IntegrityError:
-            return False, f"Username '{uname}' is already taken."
+            return False, f"Username or Matric ID '{uname}' is already registered."
 
-    # -------------------- Enrolled Profiles --------------------
     def get_users(self) -> List[Dict]:
         with self._connect() as conn:
             rows = conn.execute("SELECT * FROM users ORDER BY id DESC").fetchall()
@@ -115,23 +120,28 @@ class AttendanceDatabase:
 
     def add_user(self, matric_no: str, full_name: str, department: str, level: str) -> Tuple[bool, str]:
         today_str = date.today().isoformat()
+        clean_matric = matric_no.strip().upper()
         try:
             with self._connect() as conn:
                 conn.execute(
                     "INSERT INTO users (matric_no, full_name, department, level, enrolled_at) VALUES (?, ?, ?, ?, ?)",
-                    (matric_no.strip().upper(), full_name.strip(), department.strip(), level, today_str),
+                    (clean_matric, full_name.strip(), department.strip(), level, today_str),
+                )
+                # Automatically create an auth account for the student (default password: student123)
+                conn.execute(
+                    "INSERT OR IGNORE INTO auth_accounts (username, password_hash, full_name, role) VALUES (?, ?, ?, ?)",
+                    (clean_matric.lower(), _hash_password("student123"), full_name.strip(), "Student"),
                 )
                 conn.commit()
-            return True, f"Enrolled {full_name.strip()} ({matric_no.strip().upper()}) successfully."
+            return True, f"Enrolled {full_name.strip()} ({clean_matric}) successfully. Login created with password: student123"
         except sqlite3.IntegrityError:
-            return False, f"Matric / Staff ID '{matric_no.strip().upper()}' already exists."
+            return False, f"Matric ID '{clean_matric}' already exists."
 
     def delete_user(self, user_id: int):
         with self._connect() as conn:
             conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
             conn.commit()
 
-    # -------------------- Attendance Logs --------------------
     def get_records(self) -> List[Dict]:
         with self._connect() as conn:
             rows = conn.execute("SELECT * FROM attendance_records ORDER BY id DESC").fetchall()
