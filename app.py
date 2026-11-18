@@ -21,23 +21,18 @@ st.set_page_config(
 )
 
 # ============================================================================
-# HIGH-CONTRAST, ACCESSIBLE UI STYLING (FIXED TEXT VISIBILITY)
+# HIGH-CONTRAST, ACCESSIBLE UI STYLING
 # ============================================================================
 st.markdown(
     """
     <style>
-    /* Global layout & readable dark text */
     .stApp {
         background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
         color: #0f172a;
     }
-    
-    /* Ensure all markdown text, paragraphs, and labels have high contrast */
     p, span, label, .stMarkdown, div[data-testid="stMarkdownContainer"] {
         color: #1e293b !important;
     }
-
-    /* Hero Banner */
     .hero-card {
         background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 55%, #312e81 100%);
         padding: 1.75rem 2rem;
@@ -69,8 +64,6 @@ st.markdown(
         border-radius: 999px;
         margin-bottom: 0.65rem;
     }
-
-    /* KPI Metric Cards */
     div[data-testid="stMetric"] {
         background: #ffffff;
         border: 1px solid #cbd5e1;
@@ -86,14 +79,10 @@ st.markdown(
         color: #0f172a !important;
         font-weight: 800 !important;
     }
-
-    /* Form and Input Labels */
     .stTextInput label, .stSelectbox label, .stRadio label, .stCheckbox label {
         color: #0f172a !important;
         font-weight: 600 !important;
     }
-
-    /* Sidebar polish - High contrast white text on dark background */
     section[data-testid="stSidebar"] {
         background-color: #0f172a;
     }
@@ -154,7 +143,7 @@ def detect_faces_in_image(uploaded_image) -> tuple:
 
 
 # ============================================================================
-# AUTHENTICATION GATE (LOGIN & STAFF REGISTRATION)
+# AUTHENTICATION GATE (LOGIN & STUDENT/STAFF ACCOUNT CREATION)
 # ============================================================================
 if "auth_user" not in st.session_state:
     st.session_state.auth_user = None
@@ -174,11 +163,11 @@ if st.session_state.auth_user is None:
             unsafe_allow_html=True,
         )
 
-        tab_login, tab_register = st.tabs(["🔐 Sign In", "📝 Create Staff Account"])
+        tab_login, tab_register = st.tabs(["🔐 Sign In", "📝 Create Student Account"])
 
         with tab_login:
             with st.form("login_form"):
-                username = st.text_input("Username", placeholder="Enter your username (e.g. admin)")
+                username = st.text_input("Username or Matric ID", placeholder="e.g. admin or csc/2022/1042")
                 password = st.text_input("Password", type="password", placeholder="Enter your password")
                 login_btn = st.form_submit_button("Sign In to Portal", type="primary", use_container_width=True)
 
@@ -188,27 +177,23 @@ if st.session_state.auth_user is None:
                         st.session_state.auth_user = account
                         st.rerun()
                     else:
-                        st.error("Invalid username or password. Please try again.")
+                        st.error("Invalid username/Matric ID or password. Please try again.")
 
-            with st.expander("ℹ️ Demo Login Credentials"):
-                st.markdown(
-                    "- **Admin Account:** `admin` / `admin123` *(Full System Access)*\n"
-                    "- **Lecturer Account:** `lecturer` / `staff123` *(Scanner & Logs Access)*"
-                )
+            with st.expander("ℹ️ Admin Access"):
+                st.markdown("- **Default Administrator:** `admin` / `admin123`")
 
         with tab_register:
             with st.form("register_form", clear_on_submit=True):
-                reg_name = st.text_input("Full Name", placeholder="e.g. Dr. Ngozi Okafor")
-                reg_user = st.text_input("Choose Username", placeholder="e.g. ngozi.okafor")
-                reg_role = st.selectbox("Role", ["Staff", "Admin"])
+                reg_name = st.text_input("Full Name", placeholder="e.g. Chinedu Okafor")
+                reg_user = st.text_input("Matric ID / Username", placeholder="e.g. CSC/2023/0198")
                 reg_pass = st.text_input("Choose Password", type="password", placeholder="Minimum 4 characters")
-                reg_btn = st.form_submit_button("Register Account", type="primary", use_container_width=True)
+                reg_btn = st.form_submit_button("Create Account", type="primary", use_container_width=True)
 
                 if reg_btn:
                     if not reg_name.strip() or not reg_user.strip():
                         st.error("Please fill in all fields.")
                     else:
-                        ok, msg = db.register_account(reg_user, reg_pass, reg_name, reg_role)
+                        ok, msg = db.register_account(reg_user, reg_pass, reg_name, role="Student")
                         if ok:
                             st.success(msg)
                         else:
@@ -229,9 +214,10 @@ with st.sidebar:
     st.caption(f"Role: **{current_user['role']}** • `{current_user['username']}`")
     st.divider()
 
-    nav_options = ["📊 Dashboard", "📷 Live Face Scanner", "📋 Attendance Logs"]
     if is_admin:
-        nav_options.insert(2, "🧑‍🎓 Enroll Profile")
+        nav_options = ["📊 Dashboard", "📷 Live Face Scanner", "🧑‍🎓 Enroll Profile", "📋 Attendance Logs"]
+    else:
+        nav_options = ["📊 Dashboard", "📷 Live Face Scanner"]
 
     page = st.radio("Navigation", nav_options, label_visibility="collapsed")
     st.divider()
@@ -249,8 +235,8 @@ today_records = [r for r in records if r["date"] == today_str]
 st.markdown(
     f"""
     <div class="hero-card">
-        <span class="hero-badge">● SYSTEM ONLINE • {current_user['role'].upper()} SESSION</span>
-        <h1>Welcome back, {current_user['full_name']}</h1>
+        <span class="hero-badge">● SYSTEM ONLINE • {current_user['role'].upper()} PORTAL</span>
+        <h1>Welcome, {current_user['full_name']}</h1>
         <p>Real-time facial recognition verification, automated punctuality tracking, and SQLite audit logs ({today_str})</p>
     </div>
     """,
@@ -304,7 +290,7 @@ elif page == "📷 Live Face Scanner":
         with st.container(border=True):
             st.markdown("#### 🎯 Identity Verification")
             if not users:
-                st.warning("No enrolled profiles found. Ask an Admin to enroll students or staff first.")
+                st.warning("No enrolled profiles found. Ask an Admin to enroll students first.")
             else:
                 user_map = {f"{u['full_name']} ({u['matric_no']})": u for u in users}
                 selected_label = st.selectbox("Select Candidate Profile", list(user_map.keys()))
@@ -331,27 +317,27 @@ elif page == "📷 Live Face Scanner":
 # ============================================================================
 # PAGE 3: ENROLL PROFILE (ADMIN ONLY)
 # ============================================================================
-elif page == "🧑‍🎓 Enroll Profile":
+elif page == "🧑‍🎓 Enroll Profile" and is_admin:
     st.subheader("🧑‍🎓 Biometric Profile Enrollment")
     col_form, col_list = st.columns([1, 1.8], gap="large")
 
     with col_form:
         with st.container(border=True):
-            st.markdown("#### Register New Identity")
+            st.markdown("#### Register New Student Identity")
             with st.form("enroll_form", clear_on_submit=True):
-                matric_no = st.text_input("Matric / Staff ID", placeholder="e.g. CSC/2023/0198")
+                matric_no = st.text_input("Matric / Student ID", placeholder="e.g. CSC/2023/0198")
                 full_name = st.text_input("Full Name", placeholder="e.g. Oluwaseun Martins")
                 department = st.text_input("Department", value="Computer Science")
                 level = st.selectbox(
-                    "Level / Role",
-                    ["100L", "200L", "300L", "400L", "500L", "STAFF"],
+                    "Level",
+                    ["100L", "200L", "300L", "400L", "500L"],
                     index=3,
                 )
-                submitted = st.form_submit_button("Save Biometric Profile", type="primary", use_container_width=True)
+                submitted = st.form_submit_button("Save Profile & Create Login", type="primary", use_container_width=True)
 
                 if submitted:
                     if not matric_no.strip() or not full_name.strip():
-                        st.error("Matric/Staff ID and Full Name are required.")
+                        st.error("Matric ID and Full Name are required.")
                     else:
                         ok, msg = db.add_user(matric_no, full_name, department, level)
                         if ok:
@@ -376,12 +362,12 @@ elif page == "🧑‍🎓 Enroll Profile":
                     st.rerun()
 
 # ============================================================================
-# PAGE 4: ATTENDANCE LOGS
+# PAGE 4: ATTENDANCE LOGS (ADMIN ONLY)
 # ============================================================================
-elif page == "📋 Attendance Logs":
+elif page == "📋 Attendance Logs" and is_admin:
     st.subheader("📋 Verified Attendance Audit Trail")
     with st.container(border=True):
-        search_query = st.text_input("🔍 Filter by Name, Matric/Staff ID, Department, or Date", "")
+        search_query = st.text_input("🔍 Filter by Name, Matric ID, Department, or Date", "")
 
         if not records:
             st.info("No attendance records logged yet.")
